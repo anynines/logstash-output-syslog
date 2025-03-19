@@ -263,7 +263,6 @@ class LogStash::Outputs::Syslog < LogStash::Outputs::Base
       ssl_context.cert_store = cert_store
       ssl_context.verify_mode = OpenSSL::SSL::VERIFY_PEER
       end
-    end
     ssl_context
   end
 end
