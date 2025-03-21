@@ -251,14 +251,14 @@ module LogStash
           cert_store = OpenSSL::X509::Store.new
           # Load the system default certificate path to the store
           cert_store.set_default_paths
-          if File.directory?(@ssl_cacert)
+          if ::File.directory?(@ssl_cacert)
             cert_store.add_path(@ssl_cacert)
           else
             cert_store.add_file(@ssl_cacert)
           end
           if @ssl_crl
             # copy the behavior of X509_load_crl_file() which supports loading bundles of CRLs.
-            File.read(@ssl_crl).split(CRL_END_TAG).each do |crl|
+            ::File.read(@ssl_crl).split(CRL_END_TAG).each do |crl|
               crl << CRL_END_TAG
               cert_store.add_crl(OpenSSL::X509::CRL.new(crl))
             end
