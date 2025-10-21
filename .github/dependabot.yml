@@ -1,0 +1,27 @@
+version: 2
+updates:
+  - package-ecosystem: "bundler"
+    vendor: true
+    directory: "/"
+    # Disable version updates, only security updates
+    open-pull-requests-limit: 0
+    schedule:
+      interval: weekly
+      time: "04:00"
+      day: "monday"
+      timezone: "Europe/Berlin"
+    labels:
+      - "unit-test"
+      - "cve"
+      - "dependabot"
+    groups:
+      all_dependencies:
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: "openssl"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "redis"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "puma"
+        update-types: ["version-update:semver-major"]
