@@ -4,7 +4,7 @@ require 'logstash/outputs/base'
 require 'logstash/namespace'
 require 'date'
 require 'logstash/codecs/plain'
-
+require 'thread'
 # Send events to a syslog server.
 #
 # You can send messages compliant with RFC3164 or RFC5424
@@ -66,6 +66,10 @@ module LogStash
 
       # when connection fails, retry interval in sec.
       config :reconnect_interval, validate: :number, default: 1
+
+      # Maximum number of events to hold in the output queue. If the queue is full,
+      # the oldest event will be dropped to make room for the new one.
+      config :queue_max_size, validate: :number, default: 1000
 
       # syslog server protocol. you can choose between udp, tcp and ssl/tls over tcp
       config :protocol, validate: %w[tcp udp ssl-tcp], default: 'udp'
@@ -137,7 +141,7 @@ module LogStash
         if @codec.instance_of?(::LogStash::Codecs::Plain) && @codec.config['format'].nil?
           @codec = LogStash::Codecs::Plain.new({ 'format' => @message })
         end
-        @codec.on_event(&method(:publish))
+        @codec.on_event(&method(:enqueue_publish))
 
         # use instance variable to avoid string comparison for each event
         @is_rfc3164 = (@rfc == 'rfc3164')
@@ -145,13 +149,32 @@ module LogStash
 
         @delimitter = "\n"
         @delimitter = '' if @is_rfc6587
-        return unless @is_rfc3164 && !@structured_data.empty?
+        raise LogStash::ConfigurationError, 'Structured data is not supported for RFC3164' if @is_rfc3164 && !@structured_data.empty?
 
-        raise LogStash::ConfigurationError, 'Structured data is not supported for RFC3164'
+        @event_queue = SizedQueue.new(@queue_max_size)
+        @worker_thread = Thread.new { process_queue }
+      end
+
+      def close
+        @event_queue.push(:shutdown)
+        @worker_thread.join
+        super
       end
 
       def receive(event)
         @codec.encode(event)
+      end
+
+      def enqueue_publish(event, payload)
+        if @event_queue.size >= @queue_max_size
+          @event_queue.pop(true)
+          @logger.warn("Syslog output queue full (#{@queue_max_size}); oldest event dropped")
+        end
+        @event_queue.push([event, payload], true)
+      rescue ThreadError
+        retries = (retries || 0) + 1
+        retry if retries <= 10
+        @logger.warn('Could not enqueue event; event discarded')
       end
 
       def publish(event, payload)
@@ -209,6 +232,18 @@ module LogStash
       end
 
       private
+
+      def process_queue
+        loop do
+          item = @event_queue.pop
+          break if item == :shutdown
+
+          event, payload = item
+          publish(event, payload)
+        rescue => e
+          @logger.error('Error processing event from queue', exception: e, backtrace: e.backtrace)
+        end
+      end
 
       def udp?
         @protocol == 'udp'
